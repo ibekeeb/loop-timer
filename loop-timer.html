@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="theme-color" content="#0e141c" />
+<title>Loop Timer</title>
+<style>
+  :root{
+    --bg:#0e141c; --surface:#171f2a; --surface-hi:#1e2836;
+    --border:#2a3542; --text:#eef3f8; --muted:#8496a6;
+    --c0:#f4b740; --c1:#35b8a6; --c2:#f2708b; --c3:#a78bef;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  html,body{margin:0; background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased}
+  body{display:flex; justify-content:center; min-height:100vh; min-height:100dvh}
+  .wrap{width:100%; max-width:460px; padding:calc(22px + env(safe-area-inset-top)) 18px calc(28px + env(safe-area-inset-bottom)); }
+  .top{display:flex; align-items:baseline; justify-content:space-between; margin-bottom:18px}
+  .eyebrow{letter-spacing:3px; font-size:12px; color:var(--muted); font-weight:700}
+  .count{font-size:12px; color:var(--muted)}
+  .readout{display:flex; flex-direction:column; align-items:center}
+  .ringwrap{position:relative; width:220px; height:220px}
+  .center{position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center}
+  .name{font-size:13px; color:var(--muted); max-width:150px; text-align:center; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-bottom:2px}
+  .time{font-size:46px; font-weight:700; font-variant-numeric:tabular-nums; letter-spacing:1px}
+  .time.dim{color:var(--muted)}
+  .step{font-size:12px; color:var(--muted); margin-top:2px; min-height:15px}
+  .pips{display:flex; gap:8px; margin-top:14px; align-items:center; min-height:9px}
+  .pip{height:9px; border-radius:6px; transition:width .2s ease}
+  @keyframes pulse{0%,100%{opacity:.55; transform:scale(1)} 50%{opacity:1; transform:scale(1.35)}}
+  .pip.active{animation:pulse 1.6s ease-in-out infinite}
+  .slots{margin-top:22px; display:flex; flex-direction:column; gap:10px}
+  .slot{background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:12px; transition:border-color .2s,background .2s}
+  .slot.active{background:var(--surface-hi)}
+  .slot.off{opacity:.62}
+  .slothead{display:flex; align-items:center; gap:10px; margin-bottom:10px}
+  .dot{width:12px; height:12px; border-radius:4px; flex-shrink:0}
+  .nameinput{flex:1; background:transparent; border:none; outline:none; color:var(--text); font-size:15px; font-weight:600; min-width:0}
+  .dur{font-size:11px; color:var(--muted)}
+  .steppers{display:flex; gap:10px}
+  .stepper{flex:1; display:flex; align-items:center; gap:8px}
+  .stepbtn{width:40px; height:40px; border-radius:10px; border:1px solid var(--border); background:var(--surface-hi); color:var(--text); font-size:22px; line-height:1; flex-shrink:0; cursor:pointer}
+  .stepbtn:active{transform:scale(.9)}
+  .stepbtn:disabled{opacity:.4}
+  .numwrap{flex:1; text-align:center}
+  .numinput{width:100%; background:transparent; border:none; outline:none; text-align:center; color:var(--text); font-size:22px; font-weight:700; font-variant-numeric:tabular-nums}
+  .numinput::-webkit-outer-spin-button,.numinput::-webkit-inner-spin-button{-webkit-appearance:none; margin:0}
+  .numinput{-moz-appearance:textfield}
+  .numlabel{font-size:10px; color:var(--muted); letter-spacing:1px; margin-top:-2px}
+  .action{margin-top:20px; width:100%; padding:17px; border-radius:16px; border:none; font-size:18px; font-weight:700; letter-spacing:.5px; cursor:pointer; transition:background .15s}
+  .hint{text-align:center; color:var(--muted); font-size:12px; margin-top:12px; line-height:1.5}
+  input:disabled{cursor:default}
+  @media (prefers-reduced-motion:reduce){ .pip.active{animation:none} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <span class="eyebrow">LOOP TIMER</span>
+    <span class="count" id="count">—</span>
+  </div>
+
+  <div class="readout">
+    <div class="ringwrap">
+      <svg width="220" height="220" viewBox="0 0 200 200">
+        <circle cx="100" cy="100" r="88" fill="none" stroke="var(--border)" stroke-width="10"></circle>
+        <circle id="ring" cx="100" cy="100" r="88" fill="none" stroke="var(--c0)" stroke-width="10"
+          stroke-linecap="round" transform="rotate(-90 100 100)"
+          style="transition:stroke-dashoffset .12s linear, stroke .2s ease"></circle>
+      </svg>
+      <div class="center">
+        <div class="name" id="curName">Timer 1</div>
+        <div class="time" id="curTime">00:30</div>
+        <div class="step" id="curStep"></div>
+      </div>
+    </div>
+    <div class="pips" id="pips"></div>
+  </div>
+
+  <div class="slots" id="slots"></div>
+
+  <button class="action" id="action">Start loop</button>
+  <p class="hint">Timers run in order and loop back to the top. A chirp marks each hand-off. Set a timer to 0:00 to skip it.</p>
+</div>
+
+<script>
+(function(){
+  const COLORS = ["var(--c0)","var(--c1)","var(--c2)","var(--c3)"];
+  const RAW = ["#f4b740","#35b8a6","#f2708b","#a78bef"];
+  const R = 88, CIRC = 2 * Math.PI * R;
+
+  let slots = [
+    {name:"", min:0, sec:30},
+    {name:"", min:0, sec:10},
+    {name:"", min:0, sec:0},
+    {name:"", min:0, sec:0},
+  ];
+  let running = false;
+  let sequence = [];      // [{slot,duration}]
+  let seqIdx = 0;
+  let remaining = 0;
+  let endTs = 0;
+  let tickId = null;
+  let audioCtx = null;
+  let wakeLock = null;
+
+  const pad = n => String(n).padStart(2,"0");
+  const fmt = ms => { const t = Math.max(0, Math.ceil(ms/1000)); return pad(Math.floor(t/60))+":"+pad(t%60); };
+  const clamp = (v,lo,hi) => Math.min(hi, Math.max(lo, v));
+  const dur = s => s.min*60 + s.sec;
+  const activeCount = () => slots.filter(s=>dur(s)>0).length;
+
+  // ---- audio ----
+  function ensureAudio(){
+    if(!audioCtx){ const C = window.AudioContext||window.webkitAudioContext; if(C) audioCtx = new C(); }
+    if(audioCtx && audioCtx.state==="suspended") audioCtx.resume();
+  }
+  function beep(){
+    if(!audioCtx) return;
+    const t = audioCtx.currentTime;
+    [660,880].forEach((f,k)=>{
+      const osc = audioCtx.createOscillator(), g = audioCtx.createGain();
+      osc.type="sine"; osc.frequency.value=f;
+      osc.connect(g); g.connect(audioCtx.destination);
+      const s = t + k*0.09;
+      g.gain.setValueAtTime(0.0001, s);
+      g.gain.exponentialRampToValueAtTime(0.28, s+0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, s+0.12);
+      osc.start(s); osc.stop(s+0.14);
+    });
+    if(navigator.vibrate) navigator.vibrate(40);
+  }
+
+  // ---- wake lock (best effort) ----
+  async function requestWake(){ try{ if(navigator.wakeLock) wakeLock = await navigator.wakeLock.request("screen"); }catch(e){} }
+  function releaseWake(){ try{ wakeLock && wakeLock.release(); }catch(e){} wakeLock = null; }
+  document.addEventListener("visibilitychange", ()=>{ if(running && document.visibilityState==="visible") requestWake(); });
+
+  // ---- controls ----
+  function start(){
+    const seq = slots.map((s,i)=>({slot:i, duration:dur(s)})).filter(x=>x.duration>0);
+    if(seq.length===0) return;
+    ensureAudio(); requestWake();
+    sequence = seq; seqIdx = 0;
+    endTs = Date.now() + seq[0].duration*1000;
+    remaining = seq[0].duration*1000;
+    running = true;
+    tickId = setInterval(tick, 100);
+    render();
+  }
+  function stop(){
+    running = false; clearInterval(tickId); tickId = null; releaseWake();
+    remaining = 0; seqIdx = 0; render();
+  }
+  function tick(){
+    const now = Date.now();
+    let rem = endTs - now;
+    if(rem <= 0){
+      beep();
+      seqIdx = (seqIdx+1) % sequence.length;
+      const d = sequence[seqIdx].duration;
+      endTs = now + d*1000; rem = d*1000;
+    }
+    remaining = rem;
+    updateReadout();
+  }
+
+  // ---- rendering ----
+  const $ = id => document.getElementById(id);
+
+  function buildSlots(){
+    const host = $("slots"); host.innerHTML = "";
+    slots.forEach((s,i)=>{
+      const el = document.createElement("div");
+      el.className = "slot"; el.dataset.i = i;
+      el.innerHTML =
+        '<div class="slothead">'
+        + '<span class="dot" style="background:'+COLORS[i]+'"></span>'
+        + '<input class="nameinput" maxlength="24" placeholder="Timer '+(i+1)+'">'
+        + '<span class="dur"></span>'
+        + '</div>'
+        + '<div class="steppers">'
+        +   stepperHTML("min", i) + stepperHTML("sec", i)
+        + '</div>';
+      const nameInput = el.querySelector(".nameinput");
+      nameInput.value = s.name;
+      nameInput.addEventListener("input", e=>{ slots[i].name = e.target.value; render(); });
+      host.appendChild(el);
+    });
+    // wire steppers
+    host.querySelectorAll("[data-step]").forEach(btn=>{
+      btn.addEventListener("click", ()=>{
+        const i=+btn.dataset.i, f=btn.dataset.field, d=+btn.dataset.step;
+        slots[i][f] = clamp((slots[i][f]||0)+d, 0, 59); render();
+      });
+    });
+    host.querySelectorAll(".numinput").forEach(inp=>{
+      inp.addEventListener("input", e=>{
+        const i=+inp.dataset.i, f=inp.dataset.field;
+        slots[i][f] = clamp(parseInt(e.target.value||"0",10)||0, 0, 59);
+        const dspan = inp.closest(".slot").querySelector(".dur");
+        dspan.textContent = dur(slots[i])>0 ? fmt(dur(slots[i])*1000) : "off";
+        updateCount();
+      });
+    });
+  }
+  function stepperHTML(field, i){
+    const stepSize = field==="sec" ? 5 : 1;
+    return '<div class="stepper">'
+      + '<button class="stepbtn" data-step="'+(-stepSize)+'" data-field="'+field+'" data-i="'+i+'">\u2212</button>'
+      + '<div class="numwrap"><input class="numinput" type="number" inputmode="numeric" data-field="'+field+'" data-i="'+i+'"><div class="numlabel">'+field+'</div></div>'
+      + '<button class="stepbtn" data-step="'+stepSize+'" data-field="'+field+'" data-i="'+i+'">+</button>'
+      + '</div>';
+  }
+
+  function updateCount(){
+    const n = activeCount();
+    $("count").textContent = n===0 ? "\u2014" : n+" in loop";
+    const btn = $("action");
+    btn.disabled = !running && n===0;
+    btn.style.background = running ? "#e15a5a" : (n===0 ? "var(--border)" : "#2fb89e");
+    btn.style.color = running ? "#fff" : "#06231d";
+    btn.style.cursor = (!running && n===0) ? "not-allowed" : "pointer";
+    btn.textContent = running ? "Stop" : "Start loop";
+  }
+
+  function updateReadout(){
+    const cur = running ? sequence[seqIdx] : null;
+    const previewIdx = slots.findIndex(s=>dur(s)>0);
+    const idx = cur ? cur.slot : previewIdx;
+    const total = cur ? cur.duration*1000 : (previewIdx>=0 ? dur(slots[previewIdx])*1000 : 0);
+    const shown = running ? remaining : total;
+    const prog = total>0 ? (running ? remaining/total : 1) : 0;
+
+    $("curName").textContent = idx>=0 ? (slots[idx].name || "Timer "+(idx+1)) : "No timers set";
+    const timeEl = $("curTime");
+    timeEl.textContent = fmt(shown);
+    timeEl.classList.toggle("dim", total===0);
+    $("curStep").textContent = running ? ("step "+(seqIdx+1)+" / "+sequence.length) : "";
+
+    const ring = $("ring");
+    ring.style.stroke = idx>=0 ? COLORS[idx] : "var(--muted)";
+    ring.setAttribute("stroke-dasharray", CIRC);
+    ring.setAttribute("stroke-dashoffset", CIRC*(1-prog));
+
+    // pips
+    const pips = $("pips"); pips.innerHTML = "";
+    if(running){
+      sequence.forEach((seg,i)=>{
+        const p = document.createElement("div");
+        p.className = "pip" + (i===seqIdx ? " active" : "");
+        p.style.background = COLORS[seg.slot];
+        p.style.width = (i===seqIdx ? 26 : 9) + "px";
+        p.style.opacity = i===seqIdx ? 1 : 0.4;
+        pips.appendChild(p);
+      });
+    }
+  }
+
+  function render(){
+    // sync slot fields + disabled/active states without rebuilding inputs' focus
+    document.querySelectorAll(".slot").forEach((el)=>{
+      const i = +el.dataset.i;
+      const cur = running ? sequence[seqIdx] : null;
+      const isActive = running && cur && cur.slot===i;
+      el.classList.toggle("active", !!isActive);
+      el.classList.toggle("off", dur(slots[i])===0 && !running);
+      el.style.borderColor = isActive ? RAW[i] : "var(--border)";
+      el.querySelector(".dot").style.boxShadow = isActive ? "0 0 10px "+RAW[i] : "none";
+      el.querySelector(".dur").textContent = dur(slots[i])>0 ? fmt(dur(slots[i])*1000) : "off";
+      const nameInput = el.querySelector(".nameinput");
+      if(document.activeElement!==nameInput) nameInput.value = slots[i].name;
+      nameInput.disabled = running;
+      el.querySelectorAll(".numinput").forEach(inp=>{
+        inp.disabled = running;
+        if(document.activeElement!==inp) inp.value = slots[i][inp.dataset.field];
+      });
+      el.querySelectorAll(".stepbtn").forEach(b=> b.disabled = running);
+    });
+    updateCount();
+    updateReadout();
+  }
+
+  $("action").addEventListener("click", ()=> running ? stop() : start());
+
+  buildSlots();
+  render();
+})();
+</script>
+</body>
+</html>
